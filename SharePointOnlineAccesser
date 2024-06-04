@@ -1,0 +1,134 @@
+using System;
+using System.Web.Mvc;
+using Microsoft.Identity.Client;
+using Newtonsoft.Json.Linq;
+using System.Net.Http;
+using System.Threading;
+using System.IO;
+using System.Xml.Xsl;
+using System.Xml;
+using Newtonsoft.Json;
+
+public class HomeController : Controller
+{
+    // Azure Entra IDのクライアントID
+    private static readonly string clientId = "●●●●●";
+    // Azure Entra IDのアクセストークン取得用エンドポイント
+    private static readonly string authority = $"https://login.microsoftonline.com/●●●●●";
+    // アプリ側のスコープを指定
+    private static readonly string[] scopes = new string[] { "Sites.ReadWrite.All" };
+
+    public ActionResult Index()
+    {
+        var accessToken = "";
+        DateTimeOffset expiresOn = DateTimeOffset.UtcNow;
+        DateTimeOffset dataTimeOffsetNow = DateTimeOffset.UtcNow;
+
+        // Cookieの値を読み込む
+        // 過去に取得したアクセストークの値がcookieに保存されていればその値を取得する
+        string cookieAccessToken = Request.Cookies["accessToken"] != null ? Request.Cookies["accessToken"].Value : null;
+        // 過去に取得したアクセストークの有効期限(ExpiresOn)値がcookieに保存されていればその値を取得する
+        string cookieExpiresOn = Request.Cookies["expiresOn"] != null ? Request.Cookies["expiresOn"].Value : null;
+
+        if (!string.IsNullOrEmpty(cookieAccessToken))
+        {
+            accessToken = cookieAccessToken;
+        }
+
+        if (!string.IsNullOrEmpty(cookieExpiresOn))
+        {
+            expiresOn = DateTimeOffset.Parse(cookieExpiresOn);
+        }
+
+        if (string.IsNullOrEmpty(accessToken) || expiresOn <= dataTimeOffsetNow)
+        {
+            // 新しいスレッドを作成
+            var thread = new Thread(() =>
+            {
+                var app = PublicClientApplicationBuilder.Create(clientId)
+                    .WithAuthority(authority)
+                    .WithDefaultRedirectUri()
+                    .Build();
+
+                // このスレッドでトークンを取得
+                var result = app.AcquireTokenInteractive(scopes).ExecuteAsync().GetAwaiter().GetResult();
+
+                // 取得したアクセストークンを変数に代入
+                accessToken = result.AccessToken;
+
+                Response.Cookies["accessToken"].Value = accessToken;
+                Response.Cookies["accessToken"].Expires = DateTime.Now.AddDays(7); // 7日後に有効期限が切れるように設定
+                Response.Cookies["expiresOn"].Value = result.ExpiresOn.ToString();
+                Response.Cookies["expiresOn"].Expires = DateTime.Now.AddDays(7); // 7日後に有効期限が切れるように設定
+            });
+
+            // スレッドをシングルスレッドアパートメントモードに設定
+            thread.SetApartmentState(ApartmentState.STA);
+
+            // スレッドを開始
+            thread.Start();
+
+            // スレッドが終了するのを待つ
+            thread.Join();
+        }
+
+        using (var httpClient = new HttpClient())
+        {
+            using (var request = new HttpRequestMessage(new HttpMethod("POST"), "https://graph.microsoft.com/v1.0/sites/●●●●●/lists/●●●●●/items?expand=fields"))
+            {
+                request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + accessToken);
+
+                var response = httpClient.SendAsync(request).Result;
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var content = response.Content.ReadAsStringAsync().Result;
+                    var json = JObject.Parse(content);
+
+                    // JObjectをXNodeに変換
+                    var xmlNode = JsonConvert.DeserializeXNode(json.ToString(), "Root");
+
+                    // Xml形式に変換した文字列をxml拡張子のファイルとして保存
+                    XmlDocument xmlDoc = new XmlDocument();
+                    xmlDoc.LoadXml(xmlNode.ToString());
+                    xmlDoc.Save("C:\\●●●●●.xml");
+
+                    //var lists = json["value"].Children();
+
+                    //var titleList = new List<string>();
+                    //var descriptionsList = new List<string>();
+                    //foreach (var list in lists)
+                    //{
+                    //    var fields = list["fields"];
+                    //    if (fields != null && fields["Description"] != null)
+                    //    {
+                    //        descriptionsList.Add((string)fields["Description"]);
+                    //        titleList.Add((string)fields["Title"]);
+                    //    }
+                    //}
+                    //ViewBag.Titles = titleList;
+                    //ViewBag.Descriptions = descriptionsList;
+                }
+                else
+                {
+                    Console.WriteLine($"Error: {response.StatusCode}");
+                }
+            }
+        }
+
+        // XSLTファイルを読み込む
+        XslCompiledTransform transform = new XslCompiledTransform();
+        transform.Load("C:\\●●●●●.xsl");
+
+        // XMLファイルを読み込んで変換
+        using (StringWriter sw = new StringWriter())
+        {
+            using (XmlWriter xw = XmlWriter.Create(sw))
+            {
+                transform.Transform("C:\\●●●●●.xml", xw);
+                ViewBag.HtmlResult = sw.ToString(); // HTMLをViewBagに設定
+            }
+        }
+        return View();
+    }
+}
