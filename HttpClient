@@ -1,0 +1,47 @@
+using System;
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Threading.Tasks;
+
+namespace SharePointClientExample
+{
+    class Program
+    {
+        static async Task Main(string[] args)
+        {
+            // SharePointのサイトURL
+            var siteUrl = "http://yoursharepoint_site.com";
+            // エンドポイントURL
+            var endpointUrl = $"{siteUrl}/_api/web/lists/getbytitle('YourListName')/items";
+            // ユーザー名とパスワード
+            var username = "your_username";
+            var password = "your_password";
+            // ドメイン名
+            var domain = "your_domain";
+
+            using (var handler = new HttpClientHandler())
+            {
+                handler.Credentials = new NetworkCredential(username, password, domain);
+                using (var client = new HttpClient(handler))
+                {
+                    // JSON形式でデータを受け取るためのヘッダーを設定
+                    client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                    try
+                    {
+                        // HTTP GETリクエストを送信し、レスポンスを取得
+                        var response = await client.GetAsync(endpointUrl);
+                        response.EnsureSuccessStatusCode();
+                        // レスポンスの内容を文字列として取得
+                        var responseBody = await response.Content.ReadAsStringAsync();
+                        Console.WriteLine(responseBody);
+                    }
+                    catch (HttpRequestException e)
+                    {
+                        Console.WriteLine($"Error: {e.Message}");
+                    }
+                }
+            }
+        }
+    }
+}
